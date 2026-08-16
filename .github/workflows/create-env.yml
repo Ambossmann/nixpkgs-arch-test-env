@@ -1,0 +1,55 @@
+on:
+  workflow_dispatch:
+    inputs:
+      system:
+        required: true
+        type: "choice"
+        default: aarch64-darwin
+        options:
+          - aarch64-darwin
+          - aarch64-linux
+          - x86_64-linux
+      sandbox:
+        required: true
+        type: "choice"
+        default: relaxed
+        options:
+          - "true"
+          - relaxed
+          - "false"
+
+jobs:
+  env:
+    runs-on: >-
+      ${{ (inputs.system == 'x86_64-linux' && 'ubuntu-latest')
+      || (inputs.system == 'aarch64-linux' && 'ubuntu-24.04-arm')
+      || (inputs.system == 'aarch64-darwin' && 'macos-latest') }}
+
+    steps:
+      - name: setup nix
+        uses: Defelo/nixpkgs-review-gha/.github/actions/setup-nix@3e999274c00361af1c97924d1451b9daf75a7350
+        with:
+          system: ${{ inputs.system }}
+          sandbox: ${{ inputs.sandbox }}
+
+      - name: start rsync daemon
+        run: |
+          mkdir -p /tmp/rsync
+          cat > /tmp/rsyncd.conf <<'EOF'
+          pid file = /tmp/rsyncd.pid
+          address = 127.0.0.1
+          port = 8730
+          use chroot = no
+
+          [files]
+            path = /tmp/rsync
+            read only = false
+            list = true
+          EOF
+          nohup nix run nixpkgs#rsync -- --daemon --config=/tmp/rsyncd.conf >/tmp/rsyncd.log 2>&1 &
+
+      - name: start upterm session
+        uses: Ambossmann/action-upterm@local-forward
+        with:
+          limit-access-to-actor: true
+          wait-timeout-minutes: 5
